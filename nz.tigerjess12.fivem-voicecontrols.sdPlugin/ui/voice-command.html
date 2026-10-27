@@ -8,6 +8,9 @@
 	<sdpi-item label="Python">
 		<sdpi-textfield setting="python" placeholder="python"></sdpi-textfield>
 	</sdpi-item>
+	<sdpi-item label="Microphone">
+		<sdpi-select setting="microphone" datasource="getMicrophones" loading="Finding microphones..." placeholder="System default"></sdpi-select>
+	</sdpi-item>
 	<sdpi-item label="Model">
 		<sdpi-select setting="model" placeholder="base.en (fast)">
 			<option value="base.en">base.en (fast)</option>
@@ -21,7 +24,7 @@
 		<sdpi-textarea setting="commands" rows="8" maxlength="4000" placeholder='Leave empty for the defaults, e.g. [{"say":["sam"],"send":"sam","args":"callsign"}]'></sdpi-textarea>
 	</sdpi-item>
 	<sdpi-item label="Debug">
-		<sdpi-checkbox setting="debug" label="Save last recording to the plugin's debug folder"></sdpi-checkbox>
+		<sdpi-checkbox setting="debug" label="Save last recording and transcript to the plugin's debug folder"></sdpi-checkbox>
 	</sdpi-item>
 	<sdpi-item>
 		<details>

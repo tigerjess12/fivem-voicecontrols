@@ -65,10 +65,11 @@ Then drag **Voice Command** from the *FiveM-VoiceControls* category onto a key.
 | Setting | Default | Description |
 | --- | --- | --- |
 | Python | `python` | Python executable that has the dependencies installed |
+| Microphone | System default | Input device to record from. The list is filled in by your Python install, so set **Python** first and reopen the panel if the list is empty. If the saved microphone is unplugged, the system default is used |
 | Model | `base.en` | Whisper model size |
 | Console port | `29200` | FiveM console port |
 | Commands | built-in | JSON command list (see above) |
-| Debug | off | Save the last recording to `voice/debug/last.wav` |
+| Debug | off | Save the last recording and its transcript to `voice/debug/last.wav` and `last.txt` |
 
 ## Privacy
 

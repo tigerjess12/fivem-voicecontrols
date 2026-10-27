@@ -12,7 +12,7 @@ import wave
 RATE = 16000
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PROMPT = "Radio call."
-settings = {"prompt": DEFAULT_PROMPT, "debug": False}
+settings = {"prompt": DEFAULT_PROMPT, "debug": False, "mic": ""}
 
 
 def send(obj):
@@ -27,6 +27,27 @@ try:
 except ImportError as err:
     send({"type": "error", "code": "missing_packages", "message": str(err)})
     sys.exit(1)
+
+
+def input_devices():
+    """Input devices from the default host API only, so each microphone is listed once."""
+    api = sd.query_hostapis(sd.default.hostapi)["devices"]
+    devices = sd.query_devices()
+    out = []
+    for i in api:
+        if devices[i]["max_input_channels"] > 0 and devices[i]["name"] not in [n for _, n in out]:
+            out.append((i, devices[i]["name"]))
+    return out
+
+
+def resolve_mic(name):
+    """Device index for a saved microphone name, or None for the system default."""
+    if not name or name == "default":
+        return None
+    for i, n in input_devices():
+        if n == name:
+            return i
+    return None
 
 
 def models_dir():
@@ -59,6 +80,13 @@ def save_debug(samples):
         w.writeframes(samples.tobytes())
 
 
+def save_debug_text(text):
+    folder = os.path.join(HERE, "debug")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "last.txt"), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
 def transcribe(model, chunks):
     if not chunks:
         return ""
@@ -77,6 +105,9 @@ def transcribe(model, chunks):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--list-devices":
+        send({"type": "devices", "devices": [n for _, n in input_devices()]})
+        return
     name = sys.argv[1] if len(sys.argv) > 1 else "base.en"
     try:
         model = load_model(name)
@@ -99,13 +130,14 @@ def main():
                 cfg = json.loads(raw[7:])
                 settings["prompt"] = str(cfg.get("prompt") or DEFAULT_PROMPT)
                 settings["debug"] = bool(cfg.get("debug"))
+                settings["mic"] = str(cfg.get("mic") or "")
             except ValueError:
                 pass
         elif cmd == "start" and stream is None:
             while not audio.empty():
                 audio.get_nowait()
             try:
-                stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=1600, callback=callback)
+                stream = sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=1600, callback=callback, device=resolve_mic(settings["mic"]))
                 stream.start()
             except Exception as err:
                 stream = None
@@ -122,6 +154,8 @@ def main():
             except Exception as err:
                 send({"type": "error", "code": "transcribe_failed", "message": str(err)})
                 continue
+            if settings["debug"]:
+                save_debug_text(text)
             send({"type": "result", "text": text})
         elif cmd == "quit":
             break

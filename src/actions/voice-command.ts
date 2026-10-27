@@ -1,9 +1,10 @@
 // Voice command action for Stream Deck integration with FiveM voice controls
-import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import {createInterface} from "node:readline";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { action, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent, WillDisappearEvent, type KeyAction } from "@elgato/streamdeck";
+import { action, KeyDownEvent, KeyUpEvent, SendToPluginEvent, SingletonAction, WillAppearEvent, WillDisappearEvent, type KeyAction } from "@elgato/streamdeck";
+import type { JsonValue } from "@elgato/utils";
 import streamDeck from "@elgato/streamdeck";
 
 // Connection managers for handling FiveM voice control connections
@@ -11,7 +12,7 @@ import { ConnectionManager, DEFAULT_HOST, DEFAULT_PORT } from "../connection";
 import { buildPrompt, parseCommandConfig, parseVoiceTranscript, type CommandRule } from "../voice-parser";
 
 
-type Settings = { python?: string; model?: string; port?: number | string; commands?: string; debug?: boolean };
+type Settings = { python?: string; model?: string; port?: number | string; commands?: string; debug?: boolean; microphone?: string };
 type View = { colour: string; line1: string; line2: string };
 
 const LISTENER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../voice/listener.py");
@@ -43,7 +44,22 @@ class LaunchError extends Error {
     }
 }
 
-type ListenerConfig = { prompt: string; debug: boolean };
+type ListenerConfig = { prompt: string; debug: boolean; mic: string };
+
+// Asks the Python helper which microphones exist, for the settings dropdown
+function listMicrophones(python: string): Promise<string[]> {
+    return new Promise((resolve) => {
+        execFile(python, [LISTENER, "--list-devices"], { windowsHide: true, timeout: 15000 }, (err, stdout) => {
+            if (err) return resolve([]);
+            try {
+                const msg = JSON.parse(stdout.trim().split(/\r?\n/).pop() ?? "") as { devices?: string[] };
+                resolve(Array.isArray(msg.devices) ? msg.devices : []);
+            } catch {
+                resolve([]);
+            }
+        });
+    });
+}
 
 class Listener {
     private proc: ChildProcessWithoutNullStreams | null = null;
@@ -154,6 +170,16 @@ class Listener {
         }
 
         // Handle cleanup when the action disappears from the interface
+        // Answers the settings panel's request for the microphone dropdown
+        override async onSendToPlugin(ev: SendToPluginEvent<JsonValue, Settings>): Promise<void> {
+            const payload = ev.payload as { event?: string } | null;
+            if (payload?.event !== "getMicrophones") return;
+            const settings = await ev.action.getSettings();
+            const names = await listMicrophones(settings.python || "python");
+            const items = [{ label: "System default", value: "default" }, ...names.map((n) => ({ label: n, value: n }))];
+            await streamDeck.ui.sendToPropertyInspector({ event: "getMicrophones", items });
+        }
+
         override onWillDisappear(ev: WillDisappearEvent<Settings>): void {
             this.keys.delete(ev.action.id);
         }
@@ -186,7 +212,7 @@ class Listener {
 	    	await this.show(key, { colour: "#a12828", line1: "LISTENING", line2: "release to send" });
 	    	try {
 	    		await this.listener(ev.payload.settings).begin(
-	    			{ prompt: buildPrompt(rules), debug: ev.payload.settings.debug === true },
+	    			{ prompt: buildPrompt(rules), debug: ev.payload.settings.debug === true, mic: ev.payload.settings.microphone ?? "" },
 	    			(status) => void this.showStatus(key, status)
 	    		);
 	    	} catch (err) {
