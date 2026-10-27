@@ -9,6 +9,8 @@ import queue
 import sys
 import wave
 
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
 RATE = 16000
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PROMPT = "Radio call."

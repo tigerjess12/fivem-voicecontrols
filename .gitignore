@@ -10,3 +10,7 @@ node_modules/
 *.sdPlugin/voice/debug
 __pycache__/
 nz.tigerjess12.fivem-voicecontrols.streamDeckPlugin
+build/
+dist/build/
+dist/
+release/

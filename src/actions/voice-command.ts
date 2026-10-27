@@ -1,5 +1,6 @@
 // Voice command action for Stream Deck integration with FiveM voice controls
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import {createInterface} from "node:readline";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,7 +16,14 @@ import { buildPrompt, parseCommandConfig, parseVoiceTranscript, type CommandRule
 type Settings = { python?: string; model?: string; port?: number | string; commands?: string; debug?: boolean; microphone?: string };
 type View = { colour: string; line1: string; line2: string };
 
-const LISTENER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../voice/listener.py");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const LISTENER = path.resolve(HERE, "../voice/listener.py");
+const BUNDLED = path.resolve(HERE, process.platform === "win32" ? "listener/listener.exe" : "listener/listener");
+
+// The Full release ships a self-contained listener; otherwise fall back to the user's Python
+function listenerCommand(python: string, args: string[]): { cmd: string; args: string[] } {
+    return existsSync(BUNDLED) ? { cmd: BUNDLED, args } : { cmd: python, args: [LISTENER, ...args] };
+}
 const esc = (s: string): string =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const RESULT_MS = 2000;
@@ -49,7 +57,8 @@ type ListenerConfig = { prompt: string; debug: boolean; mic: string };
 // Asks the Python helper which microphones exist, for the settings dropdown
 function listMicrophones(python: string): Promise<string[]> {
     return new Promise((resolve) => {
-        execFile(python, [LISTENER, "--list-devices"], { windowsHide: true, timeout: 15000 }, (err, stdout) => {
+        const { cmd, args } = listenerCommand(python, ["--list-devices"]);
+        execFile(cmd, args, { windowsHide: true, timeout: 15000 }, (err, stdout) => {
             if (err) return resolve([]);
             try {
                 const msg = JSON.parse(stdout.trim().split(/\r?\n/).pop() ?? "") as { devices?: string[] };
@@ -80,7 +89,8 @@ class Listener {
         if (onStatus) this.onStatus = onStatus;
         if (this.ready) return this.ready;
         this.ready = new Promise<void>((resolve, reject) => {
-            const proc = spawn(this.python, [LISTENER, this.model], { windowsHide: true });
+            const launch = listenerCommand(this.python, [this.model]);
+            const proc = spawn(launch.cmd, launch.args, { windowsHide: true });
             this.proc = proc;
             proc.on("error", (err: NodeJS.ErrnoException) => {
                 this.reset();
