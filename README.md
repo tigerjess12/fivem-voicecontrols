@@ -34,11 +34,24 @@ You can replace them with your own in the key's **Commands** setting, which take
 
 Spoken numbers and the NATO alphabet are normalised. Anything that matches no command is reported as `NOT HEARD`. An invalid list shows `BAD CONFIG` on the key. See [voice-parser.ts](src/voice-parser.ts).
 
+## Install
+
+Download a file from the [Releases](../../releases) page and double-click it. Stream Deck installs it.
+
+| File | Pick this if |
+| --- | --- |
+| `fivem-voicecontrols-full.streamDeckPlugin` | You don't have Python. Includes its own speech engine (about 110 MB). |
+| `fivem-voicecontrols-lite.streamDeckPlugin` | You already have Python 3.9+. Tiny download, but you install the packages yourself (see Requirements). |
+
+Then drag **Voice Command** from the *FiveM-VoiceControls* category onto a key. The first press downloads the speech model (about 150 MB), which the key shows as `DOWNLOADING`.
+
+Windows may warn about an unknown publisher on the Full version, because the bundled engine isn't code-signed. Choose "More info", then "Run anyway". Some antivirus tools may also flag or remove it. If so, use the Lite version.
+
 ## Requirements
 
 - Stream Deck 7.1+ (Windows 10+ or macOS 12+)
-- Node.js 24 and the Stream Deck CLI (`npm i -g @elgato/cli`) if building from source
-- Python 3.9+ with the speech packages:
+- A FiveM client with the console TCP port enabled
+- **Lite version only:** Python 3.9+ with the speech packages:
 
   ```
   pip install faster-whisper numpy sounddevice
@@ -46,9 +59,11 @@ Spoken numbers and the NATO alphabet are normalised. Anything that matches no co
 
   If Python isn't on your PATH, enter its full path in the **Python** setting. The key shows `NO PYTHON` when Python can't be found and `PIP INSTALL` when the packages are missing.
 
-- A FiveM client with the console TCP port enabled
+The Full version is built for Windows only.
 
-## Setup
+## Building from source
+
+Needs Node.js 24, the Stream Deck CLI (`npm i -g @elgato/cli`) and, for the Lite listener, the Python packages above.
 
 ```
 npm install
@@ -58,13 +73,20 @@ npm run build
 
 `streamdeck link` makes Stream Deck load the plugin directly from this folder, so builds take effect without copying files. For development, `npm run watch` rebuilds and restarts the plugin on every change.
 
-Then drag **Voice Command** from the *FiveM-VoiceControls* category onto a key.
+To build both release files into `release/`:
+
+```
+pip install pyinstaller
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1
+```
+
+Pushing a tag such as `v0.1.0` runs the same build in GitHub Actions and attaches both files to the release. `python -m PyInstaller` is used because `pyinstaller` is often not on PATH.
 
 ## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| Python | `python` | Python executable that has the dependencies installed |
+| Python | `python` | Python executable that has the dependencies installed (Lite version only) |
 | Microphone | System default | Input device to record from. The list is filled in by your Python install, so set **Python** first and reopen the panel if the list is empty. If the saved microphone is unplugged, the system default is used |
 | Model | `base.en` | Whisper model size |
 | Console port | `29200` | FiveM console port |
