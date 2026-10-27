@@ -4,55 +4,86 @@ import {createInterface} from "node:readline";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { action, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent, WillDisappearEvent, type KeyAction } from "@elgato/streamdeck";
+import streamDeck from "@elgato/streamdeck";
 
 // Connection managers for handling FiveM voice control connections
 import { ConnectionManager, DEFAULT_HOST, DEFAULT_PORT } from "../connection";
-import { parseVoiceTranscript } from "../voice-parser";
+import { buildPrompt, parseCommandConfig, parseVoiceTranscript, type CommandRule } from "../voice-parser";
 
 
-type Settings = { python?: string; model?: string; port?: number | string };
+type Settings = { python?: string; model?: string; port?: number | string; commands?: string; debug?: boolean };
 type View = { colour: string; line1: string; line2: string };
 
 const LISTENER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../voice/listener.py");
 const esc = (s: string): string =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const RESULT_MS = 2000;
+const IDLE: View = { colour: "#1e1f22", line1: "VOICE", line2: "hold to talk" };
+
+// Turns a listener failure into a message the user can act on
+function errorView(err: unknown): View {
+    const code = err instanceof LaunchError ? err.code : "";
+    switch (code) {
+        case "python_not_found":
+            return { colour: "#7a4a00", line1: "NO PYTHON", line2: "set path" };
+        case "missing_packages":
+            return { colour: "#7a4a00", line1: "PIP INSTALL", line2: "see README" };
+        case "model_failed":
+            return { colour: "#7a4a00", line1: "MODEL FAIL", line2: "check internet" };
+        default:
+            return { colour: "#7a4a00", line1: "NO MIC", line2: "check mic" };
+    }
+}
 const font = 'font-family="Segoe UI, Arial,sans-serif"';
 const toDataUri = (svg: string): string => `data:image/svg+xml,${encodeURIComponent(svg)}`;
+
+class LaunchError extends Error {
+    constructor(message: string, readonly code: string) {
+        super(message);
+    }
+}
+
+type ListenerConfig = { prompt: string; debug: boolean };
 
 class Listener {
     private proc: ChildProcessWithoutNullStreams | null = null;
     private ready: Promise<void> | null = null;
     private pending: ((text:string | null) => void) | null = null;
+    private onStatus: ((status: string) => void) | null = null;
 
     constructor(
         private readonly python: string,
         private readonly model: string
     ) {}
 
-    async warm(): Promise<void> {
-        await this.start().catch(() => undefined);
+    async warm(onStatus?: (status: string) => void): Promise<void> {
+        await this.start(onStatus).catch(() => undefined);
     }
 
-    private start(): Promise<void> {
+    private start(onStatus?: (status: string) => void): Promise<void> {
+        if (onStatus) this.onStatus = onStatus;
         if (this.ready) return this.ready;
         this.ready = new Promise<void>((resolve, reject) => {
             const proc = spawn(this.python, [LISTENER, this.model], { windowsHide: true });
             this.proc = proc;
-            proc.on("error", (err) => {
+            proc.on("error", (err: NodeJS.ErrnoException) => {
                 this.reset();
-                reject(err);
+                reject(new LaunchError(err.message, err.code === "ENOENT" ? "python_not_found" : "spawn_failed"));
             });
-            proc.on("exit", (code) => {
+            proc.on("close", (code) => {
                 this.reset();
-                reject(new Error(`Process exited with code ${code}`));
+                reject(new LaunchError(`Process exited with code ${code}`, "exited"));
             });
             createInterface({ input: proc.stdout}).on("line", (line) => {
                 try {
-                    const msg = JSON.parse(line) as { type: string; text?: string };
+                    const msg = JSON.parse(line) as { type: string; text?: string; code?: string; message?: string };
                     if (msg.type === "ready") resolve();
+                    else if (msg.type === "downloading") this.onStatus?.("downloading");
                     else if (msg.type === "result") this.finish(msg.text ?? "");
-                    else if (msg.type === "error") this.finish(null);
+                    else if (msg.type === "error") {
+                        reject(new LaunchError(msg.message ?? "Listener error", msg.code ?? "error"));
+                        this.finish(null);
+                    }
                 } catch {
                     this.finish(null);
                 }
@@ -73,9 +104,9 @@ class Listener {
         this.finish(null);
     }
 
-    async begin(): Promise<void> {
-        await this.start();
-        this.proc?.stdin.write("start\n");
+    async begin(config: ListenerConfig, onStatus?: (status: string) => void): Promise<void> {
+        await this.start(onStatus);
+        this.proc?.stdin.write(`config ${JSON.stringify(config)}\nstart\n`);
     }
 
     async end(): Promise<string | null> {
@@ -115,8 +146,11 @@ class Listener {
         override onWillAppear(ev: WillAppearEvent<Settings>): void {
             if (!ev.action.isKey()) return;
             this.keys.set(ev.action.id, ev.action);
-		    void this.show(ev.action, { colour: "#1e1f22", line1: "VOICE", line2: "hold to talk" });
-            void this.listener(ev.payload.settings).warm();
+		    const key = ev.action;
+		    void this.show(key, IDLE);
+            void this.listener(ev.payload.settings)
+                .warm((status) => void this.showStatus(key, status))
+                .then(() => this.show(key, IDLE));
         }
 
         // Handle cleanup when the action disappears from the interface
@@ -139,12 +173,24 @@ class Listener {
 
         // Handle the key down event for the voice command action
 	    override async onKeyDown(ev: KeyDownEvent<Settings>): Promise<void> {
-	    	clearTimeout(this.timers.get(ev.action.id));
-	    	await this.show(ev.action as KeyAction<Settings>, { colour: "#a12828", line1: "LISTENING", line2: "release to send" });
+	    	const key = ev.action as KeyAction<Settings>;
+	    	clearTimeout(this.timers.get(key.id));
+	    	let rules: CommandRule[];
 	    	try {
-	    		await this.listener(ev.payload.settings).begin();
-	    	} catch {
-	    		await this.result(ev.action as KeyAction<Settings>, { colour: "#7a4a00", line1: "NO MIC", line2: "check python/vosk" }, true);
+	    		rules = parseCommandConfig(ev.payload.settings.commands);
+	    	} catch (err) {
+	    		await this.result(key, { colour: "#7a4a00", line1: "BAD CONFIG", line2: "see commands" }, true);
+	    		streamDeck.logger.warn(`Invalid commands setting: ${err instanceof Error ? err.message : err}`);
+	    		return;
+	    	}
+	    	await this.show(key, { colour: "#a12828", line1: "LISTENING", line2: "release to send" });
+	    	try {
+	    		await this.listener(ev.payload.settings).begin(
+	    			{ prompt: buildPrompt(rules), debug: ev.payload.settings.debug === true },
+	    			(status) => void this.showStatus(key, status)
+	    		);
+	    	} catch (err) {
+	    		await this.result(key, errorView(err), true);
 	    	}
 	    }
 
@@ -153,7 +199,12 @@ class Listener {
     		await this.show(key, { colour: "#2b3a8c", line1: "THINKING", line2: "" });
     		const settings = ev.payload.settings;
     		const text = await this.listener(settings).end().catch(() => null);
-    		const command = text ? parseVoiceTranscript(text) : null;
+    		let command: string | null = null;
+    		try {
+    			command = text ? parseVoiceTranscript(text, parseCommandConfig(settings.commands)) : null;
+    		} catch {
+    			command = null;
+    		}
     		if (!command) {
     			await this.result(key, { colour: "#7a4a00", line1: "NOT HEARD", line2: (text || "silence").slice(0, 18) }, true);
     			return;
@@ -175,8 +226,12 @@ class Listener {
     		if (alert) await key.showAlert();
     		this.timers.set(
     			key.id,
-    			setTimeout(() => void this.show(key, { colour: "#1e1f22", line1: "VOICE", line2: "hold to talk" }), RESULT_MS)
+    			setTimeout(() => void this.show(key, IDLE), RESULT_MS)
     		);
+    	}
+
+    	private async showStatus(key: KeyAction<Settings>, status: string): Promise<void> {
+    		if (status === "downloading") await this.show(key, { colour: "#2b3a8c", line1: "DOWNLOADING", line2: "speech model" });
     	}
 
     	private async show(key: KeyAction<Settings>, v: View): Promise<void> {

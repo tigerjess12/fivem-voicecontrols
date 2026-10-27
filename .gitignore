@@ -6,5 +6,6 @@ node_modules/
 *.sdPlugin/logs
 .gitignore
 *.sdPlugin/voice/models
-*.sdPlugin/voice/last.*
 *.wav
+*.sdPlugin/voice/debug
+__pycache__/

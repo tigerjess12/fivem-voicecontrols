@@ -13,9 +13,55 @@ const NATO: Record<string, string> = {
     november: "N", oscar: "O", papa: "P", quebec: "Q", romeo: "R", sierra: "S", tango: "T", uniform: "U", victor: "V", whiskey: "W", xray: "X", yankee: "Y", zulu: "Z"
 };
 
-// Sets for recognizing SAM and P prefixes in speech
-const SAM = new Set(["sam", "sum", "sem", "same", "sand", "sans", "psalm", "salm"]);
-const P = new Set(["p", "pea", "pee"]);
+/**
+ * A spoken command. `say` lists the words that trigger it (include likely mis-hearings),
+ * `send` is the console command that is sent, and `args` says how the rest of the speech is read:
+ * - "callsign": letters then digits, e.g. "kilo eight" -> K8
+ * - "digits": digits only, e.g. "one two three" -> 123
+ * - "text": the words as spoken
+ * - "none": no arguments
+ */
+export type CommandRule = { say: string[]; send: string; args?: "callsign" | "digits" | "text" | "none" };
+
+export const DEFAULT_COMMANDS: CommandRule[] = [
+    { say: ["sam", "sum", "sem", "same", "sand", "sans", "psalm", "salm"], send: "sam", args: "callsign" },
+    { say: ["p", "pea", "pee"], send: "p", args: "digits" }
+];
+
+export const DEFAULT_COMMANDS_JSON = JSON.stringify(DEFAULT_COMMANDS, null, 2);
+
+const ARG_TYPES = new Set(["callsign", "digits", "text", "none"]);
+
+/** Parses the user's command list. Empty input means the defaults. Throws a readable error if invalid. */
+export function parseCommandConfig(json: string | undefined): CommandRule[] {
+    if (!json || !json.trim()) return DEFAULT_COMMANDS;
+    const data: unknown = JSON.parse(json);
+    if (!Array.isArray(data) || data.length === 0) throw new Error("Commands must be a non-empty list");
+    return data.map((item, i) => {
+        const r = item as Partial<CommandRule> | null;
+        if (!r || !Array.isArray(r.say) || r.say.length === 0 || !r.say.every((s) => typeof s === "string" && s.trim())) {
+            throw new Error(`Command ${i + 1}: "say" must be a list of words`);
+        }
+        if (typeof r.send !== "string" || !r.send.trim() || /[\r\n;]/.test(r.send)) {
+            throw new Error(`Command ${i + 1}: "send" must be a single command`);
+        }
+        if (r.args !== undefined && !ARG_TYPES.has(r.args)) {
+            throw new Error(`Command ${i + 1}: "args" must be callsign, digits, text or none`);
+        }
+        return { say: r.say.map((s) => s.trim().toLowerCase()), send: r.send.trim(), args: r.args ?? "text" };
+    });
+}
+
+/** A short example phrase list that biases the speech recogniser towards the configured commands. */
+export function buildPrompt(rules: CommandRule[]): string {
+    const examples = rules.map((r) => {
+        const word = r.say[0];
+        if (r.args === "callsign") return `${word} K 8. ${word} W N T 1 1.`;
+        if (r.args === "digits") return `${word} 1 2 3 4.`;
+        return `${word}.`;
+    });
+    return `Radio call. ${examples.join(" ")}`;
+}
 
 // Normalize transcript into array of tokens
 function normalize(transcript: string): string[] {
@@ -53,20 +99,43 @@ function callsign(tokens: string[]): string {
     return letters + m[2];
 }
 
-export function parseVoiceTranscript(transcript: string): string | null {
+export function parseVoiceTranscript(transcript: string, rules: CommandRule[] = DEFAULT_COMMANDS): string | null {
     const tokens = normalize(transcript);
     if (tokens.length === 0) return null;
+    const first = tokens[0].toLowerCase();
 
-    if (SAM.has(tokens[0])) {
-        const unit = callsign(tokens.slice(1));
-        return unit ? `sam ${unit}` : "sam ";
+    for (const rule of rules) {
+        const rest = tokens.slice(1);
+        let attached = "";
+        let matched = rule.say.includes(first);
+
+        // "p1234" is heard as a single word
+        if (!matched && rule.args === "digits") {
+            const m = rule.say.map((s) => new RegExp(`^${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d+)$`).exec(first)).find(Boolean);
+            if (m) {
+                matched = true;
+                attached = m[1];
+            }
+        }
+        if (!matched) continue;
+
+        switch (rule.args) {
+            case "callsign": {
+                const unit = callsign(rest);
+                return unit ? `${rule.send} ${unit}` : `${rule.send} `;
+            }
+            case "digits": {
+                const code = attached + rest.join("").replace(/[^0-9]/g, "");
+                return code ? `${rule.send} ${code}` : `${rule.send} `;
+            }
+            case "none":
+                return rule.send;
+            default: {
+                const text = rest.join(" ");
+                return text ? `${rule.send} ${text}` : `${rule.send} `;
+            }
+        }
     }
 
-    const attached = /^p(\d+)$/.exec(tokens[0]);
-    if (attached || P.has(tokens[0])) {
-        const code = (attached ? attached[1] : "") + tokens.slice(1).join("").replace(/[^0-9]/g, "");
-        return code ? `p ${code}` : 'p ';
-    }
-    
     return null;
 }

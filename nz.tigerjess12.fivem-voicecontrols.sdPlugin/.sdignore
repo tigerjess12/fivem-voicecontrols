@@ -1,0 +1,5 @@
+voice/models
+voice/debug
+voice/__pycache__
+*.wav
+*.pyc

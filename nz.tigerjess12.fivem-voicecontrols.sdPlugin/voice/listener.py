@@ -1,17 +1,18 @@
-"""Offline push-to-talk recogniser (faster-whisper). Commands on stdin: start | stop | quit. Replies are JSON lines on stdout."""
+"""Offline push-to-talk recogniser (faster-whisper).
+
+Commands on stdin: start | stop | quit | config <json>. Replies are JSON lines on stdout.
+Audio is never written to disk unless debug is turned on in the plugin settings.
+"""
 import json
 import os
 import queue
 import sys
 import wave
 
-import numpy as np
-import sounddevice as sd
-from faster_whisper import WhisperModel
-
 RATE = 16000
 HERE = os.path.dirname(os.path.abspath(__file__))
-PROMPT = "Police radio call. Sam W N T 1 1. Sam P O I 3. Sam K 8. 10-3 K8. 10-0 P O I 3. 10-2 A 4. 10-7 K 8. P 1 2 3 4. P 5 6 7. Postal 1 2 3 4."
+DEFAULT_PROMPT = "Radio call."
+settings = {"prompt": DEFAULT_PROMPT, "debug": False}
 
 
 def send(obj):
@@ -19,8 +20,39 @@ def send(obj):
     sys.stdout.flush()
 
 
+try:
+    import numpy as np
+    import sounddevice as sd
+    from faster_whisper import WhisperModel
+except ImportError as err:
+    send({"type": "error", "code": "missing_packages", "message": str(err)})
+    sys.exit(1)
+
+
+def models_dir():
+    """Per-user folder, so models survive plugin updates and are never bundled with the plugin."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "FiveM-VoiceControls", "models")
+
+
+def load_model(name):
+    root = models_dir()
+    try:
+        return WhisperModel(name, device="cpu", compute_type="int8", download_root=root, local_files_only=True)
+    except Exception:
+        send({"type": "downloading"})
+        return WhisperModel(name, device="cpu", compute_type="int8", download_root=root)
+
+
 def save_debug(samples):
-    with wave.open(os.path.join(HERE, "last.wav"), "wb") as w:
+    folder = os.path.join(HERE, "debug")
+    os.makedirs(folder, exist_ok=True)
+    with wave.open(os.path.join(folder, "last.wav"), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(RATE)
@@ -31,7 +63,8 @@ def transcribe(model, chunks):
     if not chunks:
         return ""
     samples = np.frombuffer(b"".join(chunks), dtype=np.int16)
-    save_debug(samples)
+    if settings["debug"]:
+        save_debug(samples)
     audio = samples.astype(np.float32) / 32768.0
     peak = float(np.max(np.abs(audio))) if audio.size else 0.0
     if peak < 0.005:
@@ -39,14 +72,18 @@ def transcribe(model, chunks):
     audio = audio * min(0.9 / peak, 20.0)
     pad = np.zeros(RATE // 4, dtype=np.float32)
     audio = np.concatenate([pad, audio, pad])
-    segments, _ = model.transcribe(audio, language="en", beam_size=1, initial_prompt=PROMPT, condition_on_previous_text=False, without_timestamps=True)
+    segments, _ = model.transcribe(audio, language="en", beam_size=1, initial_prompt=settings["prompt"], condition_on_previous_text=False, without_timestamps=True)
     return " ".join(s.text.strip() for s in segments).strip()
 
 
 def main():
     name = sys.argv[1] if len(sys.argv) > 1 else "base.en"
-    model = WhisperModel(name, device="cpu", compute_type="int8", download_root=os.path.join(HERE, "models"))
-    list(model.transcribe(np.zeros(RATE, dtype=np.float32), language="en", beam_size=1)[0])
+    try:
+        model = load_model(name)
+        list(model.transcribe(np.zeros(RATE, dtype=np.float32), language="en", beam_size=1)[0])
+    except Exception as err:
+        send({"type": "error", "code": "model_failed", "message": str(err)})
+        sys.exit(1)
     audio = queue.Queue()
     stream = None
 
@@ -55,8 +92,16 @@ def main():
 
     send({"type": "ready"})
     for line in sys.stdin:
-        cmd = line.strip().lower()
-        if cmd == "start" and stream is None:
+        raw = line.strip()
+        cmd = raw.lower()
+        if cmd.startswith("config "):
+            try:
+                cfg = json.loads(raw[7:])
+                settings["prompt"] = str(cfg.get("prompt") or DEFAULT_PROMPT)
+                settings["debug"] = bool(cfg.get("debug"))
+            except ValueError:
+                pass
+        elif cmd == "start" and stream is None:
             while not audio.empty():
                 audio.get_nowait()
             try:
@@ -64,7 +109,7 @@ def main():
                 stream.start()
             except Exception as err:
                 stream = None
-                send({"type": "error", "message": str(err)})
+                send({"type": "error", "code": "no_mic", "message": str(err)})
         elif cmd == "stop" and stream is not None:
             stream.stop()
             stream.close()
@@ -75,10 +120,8 @@ def main():
             try:
                 text = transcribe(model, chunks)
             except Exception as err:
-                send({"type": "error", "message": str(err)})
+                send({"type": "error", "code": "transcribe_failed", "message": str(err)})
                 continue
-            with open(os.path.join(HERE, "last.txt"), "w", encoding="utf-8") as f:
-                f.write(text)
             send({"type": "result", "text": text})
         elif cmd == "quit":
             break
