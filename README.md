@@ -17,7 +17,6 @@ The default commands are `sam` (callsign) and `p` (digits):
 | Say | Sends |
 | --- | --- |
 | "Sam Whiskey November Tango one one" | `sam WNT11` |
-| "Sam Kilo eight" | `sam K8` |
 | "P one two three four" | `p 1234` |
 
 You can replace them with your own in the key's **Commands** setting, which takes a JSON list. Leave it empty to use the defaults.
@@ -25,8 +24,7 @@ You can replace them with your own in the key's **Commands** setting, which take
 ```json
 [
   { "say": ["sam", "sum", "same"], "send": "sam", "args": "callsign" },
-  { "say": ["code", "coat"], "send": "code", "args": "digits" },
-  { "say": ["panic"], "send": "panic", "args": "none" }
+  { "say": ["panic"], "send": "10-10", "args": "none" }
 ]
 ```
 
