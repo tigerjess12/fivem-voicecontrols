@@ -4,5 +4,7 @@ node_modules/
 # Stream Deck files
 *.sdPlugin/bin
 *.sdPlugin/logs
-nz.tigerjess12.fivem-voicecontrols.streamDeckPlugin
 .gitignore
+*.sdPlugin/voice/models
+*.sdPlugin/voice/last.*
+*.wav

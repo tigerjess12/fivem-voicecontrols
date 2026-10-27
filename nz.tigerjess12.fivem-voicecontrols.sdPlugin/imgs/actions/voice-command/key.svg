@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
+  <rect width="72" height="72" fill="#1e1f22" rx="0"/>
+  
+  <g transform="translate(0, -2)">
+    
+                    <rect x="26" y="28" width="20" height="32" rx="3" fill="none" stroke="#ffffff" stroke-width="2"/>
+                    <line x1="31" y1="16" x2="31" y2="28" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                    <rect x="38" y="24" width="4" height="4" rx="1" fill="#ffffff"/>
+                    <line x1="30" y1="35" x2="42" y2="35" stroke="#00f0ff" stroke-width="1.5" stroke-linecap="round"/>
+                    <line x1="30" y1="39" x2="42" y2="39" stroke="#00f0ff" stroke-width="1.5" stroke-linecap="round"/>
+                    <line x1="30" y1="43" x2="42" y2="43" stroke="#00f0ff" stroke-width="1.5" stroke-linecap="round"/>
+                    <rect x="23" y="32" width="3" height="8" rx="1" fill="#00f0ff"/>
+                    <path d="M 18 20 A 16 16 0 0 1 44 20" fill="none" stroke="#00f0ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+                    <path d="M 13 14 A 24 24 0 0 1 49 14" fill="none" stroke="#00f0ff" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+                
+  </g>
+  
+  <text x="36" y="55" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="9" font-weight="800" fill="#ffffff" letter-spacing="0.5">VOICE</text>
+  <text x="36" y="65" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="7" font-weight="500" fill="#e0e3ff">hold to talk</text>
+</svg>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+	<meta charset="utf-8" />
+	<script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
+</head>
+<body>
+	<sdpi-item label="Python">
+		<sdpi-textfield setting="python" placeholder="python"></sdpi-textfield>
+	</sdpi-item>
+	<sdpi-item label="Model">
+		<sdpi-select setting="model" placeholder="base.en (fast)">
+			<option value="base.en">base.en (fast)</option>
+			<option value="small.en">small.en (slower, more accurate)</option>
+		</sdpi-select>
+	</sdpi-item>
+	<sdpi-item label="Console port">
+		<sdpi-textfield setting="port" placeholder="29200"></sdpi-textfield>
+	</sdpi-item>
+	<sdpi-item>
+		<details>
+			<summary>How it works</summary>
+			<p>Hold the key and say a call, release to send it to the FiveM client console. Everything runs offline. Say "sam" then a callsign, or "ten two / three / zero / seven" then a status. Letters can be spoken as letters or NATO words, numbers as digits.</p>
+		</details>
+	</sdpi-item>
+</body>
+</html>
