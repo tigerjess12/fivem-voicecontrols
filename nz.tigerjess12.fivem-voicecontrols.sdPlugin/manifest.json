@@ -40,7 +40,7 @@
 	],
 	"Nodejs": {
 		"Version": "24",
-		"Debug": "enabled"
+		"Debug": "disabled"
 	},
 	"UUID": "nz.tigerjess12.fivem-voicecontrols"
 }
