@@ -26,6 +26,7 @@ function Pack-Variant([string]$variant, [string]$bundleDir) {
     Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $dir | Out-Null
     Copy-Item $plugin $pluginDir -Recurse
+    Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $pluginDir
     if ($bundleDir) { Copy-Item $bundleDir (Join-Path $pluginDir "bin\listener") -Recurse }
 
     $packArgs = @("pack", $pluginDir, "-o", $dir, "--force", "--no-update-check", "--no-file-list")

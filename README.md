@@ -1,7 +1,11 @@
 # FiveM Voice Controls
 
 A Stream Deck plugin for sending FiveM commands by voice. Hold the key, speak, release. Speech is transcribed offline with [faster-whisper](https://github.com/SYSTRAN/faster-whisper), turned into a command, and sent to the FiveM client console over TCP.
-[fxcommands](https://github.com/josh-tf/fxcommands), Used for sending commands into fiveM/RedM via client console
+
+FiveM client-console connection code in [src/connection.ts](./src/connection.ts)
+is adapted from [FXCommands](https://github.com/josh-tf/fxcommands). See
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for attribution and license
+details.
 
 ## How it works
 
@@ -38,6 +42,7 @@ Spoken numbers and the NATO alphabet are normalised. Anything that matches no co
 ## Install
 
 Download a file from the [Releases](../../releases) page and double-click it. Stream Deck installs it.
+Both release packages include `THIRD_PARTY_NOTICES.md`.
 
 | File | Pick this if |
 | --- | --- |
