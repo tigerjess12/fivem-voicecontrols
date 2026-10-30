@@ -1,6 +1,6 @@
 // Voice command action for Stream Deck integration with FiveM voice controls
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import {createInterface} from "node:readline";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -10,11 +10,16 @@ import streamDeck from "@elgato/streamdeck";
 
 // Connection managers for handling FiveM voice control connections
 import { ConnectionManager, DEFAULT_HOST, DEFAULT_PORT } from "../connection";
-import { buildPrompt, parseCommandConfig, parseVoiceTranscript, type CommandRule } from "../voice-parser";
+import { buildPrompt, interpretTranscript, parseCommandConfig, parseWordMap, type CommandRule, type ParserOptions } from "../voice-parser";
 
 
-type Settings = { python?: string; model?: string; port?: number | string; commands?: string; debug?: boolean; microphone?: string };
+type Settings = { python?: string; model?: string; port?: number | string; commands?: string; debug?: boolean; microphone?: string; corrections?: string; vocabulary?: string; minConfidence?: number | string; cooldown?: number | string };
 type View = { colour: string; line1: string; line2: string };
+
+// Reads the user's corrections and custom vocabulary; throws a readable error if either is invalid
+function readOptions(settings: Settings): ParserOptions {
+    return { corrections: parseWordMap(settings.corrections, "Corrections"), vocabulary: parseWordMap(settings.vocabulary, "Vocabulary") };
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LISTENER = path.resolve(HERE, "../voice/listener.py");
@@ -75,6 +80,7 @@ class Listener {
     private ready: Promise<void> | null = null;
     private pending: ((text:string | null) => void) | null = null;
     private onStatus: ((status: string) => void) | null = null;
+    confidence = 1; // of the last transcription, 0..1
 
     constructor(
         private readonly python: string,
@@ -102,10 +108,13 @@ class Listener {
             });
             createInterface({ input: proc.stdout}).on("line", (line) => {
                 try {
-                    const msg = JSON.parse(line) as { type: string; text?: string; code?: string; message?: string };
+                    const msg = JSON.parse(line) as { type: string; text?: string; confidence?: number; code?: string; message?: string };
                     if (msg.type === "ready") resolve();
                     else if (msg.type === "downloading") this.onStatus?.("downloading");
-                    else if (msg.type === "result") this.finish(msg.text ?? "");
+                    else if (msg.type === "result") {
+                        this.confidence = msg.confidence ?? 1;
+                        this.finish(msg.text ?? "");
+                    }
                     else if (msg.type === "error") {
                         reject(new LaunchError(msg.message ?? "Listener error", msg.code ?? "error"));
                         this.finish(null);
@@ -167,6 +176,7 @@ class Listener {
         private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
         private readonly listeners = new Map<string, Listener>();
         private readonly connections = new Map<number, ConnectionManager>();
+        private readonly recent = new Map<string, { command: string; at: number }>();
 
         // Map to store active key actions, timers, listeners, and connections for voice command handling
         override onWillAppear(ev: WillAppearEvent<Settings>): void {
@@ -214,6 +224,7 @@ class Listener {
 	    	let rules: CommandRule[];
 	    	try {
 	    		rules = parseCommandConfig(ev.payload.settings.commands);
+	    		readOptions(ev.payload.settings);
 	    	} catch (err) {
 	    		await this.result(key, { colour: "#7a4a00", line1: "BAD CONFIG", line2: "see commands" }, true);
 	    		streamDeck.logger.warn(`Invalid commands setting: ${err instanceof Error ? err.message : err}`);
@@ -222,7 +233,7 @@ class Listener {
 	    	await this.show(key, { colour: "#a12828", line1: "LISTENING", line2: "release to send" });
 	    	try {
 	    		await this.listener(ev.payload.settings).begin(
-	    			{ prompt: buildPrompt(rules), debug: ev.payload.settings.debug === true, mic: ev.payload.settings.microphone ?? "" },
+	    			{ prompt: buildPrompt(rules, readOptions(ev.payload.settings)), debug: ev.payload.settings.debug === true, mic: ev.payload.settings.microphone ?? "" },
 	    			(status) => void this.showStatus(key, status)
 	    		);
 	    	} catch (err) {
@@ -236,15 +247,39 @@ class Listener {
     		const settings = ev.payload.settings;
     		const text = await this.listener(settings).end().catch(() => null);
     		let command: string | null = null;
+    		let rule: CommandRule | null = null;
+    		let trace: string[] = [];
+    		let lowConfidence = false;
     		try {
-    			command = text ? parseVoiceTranscript(text, parseCommandConfig(settings.commands)) : null;
+    			const parsed = text ? interpretTranscript(text, parseCommandConfig(settings.commands), readOptions(settings)) : null;
+    			command = parsed?.command ?? null;
+    			rule = parsed?.rule ?? null;
+    			trace = parsed?.trace ?? [];
+    			const confidence = this.listener(settings).confidence;
+    			const minimum = (Number(settings.minConfidence) || 0) / 100;
+    			trace.push(`confidence: ${Math.round(confidence * 100)}%${minimum > 0 ? ` (minimum ${Math.round(minimum * 100)}%)` : ""}`);
+    			if (command && confidence < minimum) {
+    				trace.push("rejected: confidence below minimum");
+    				command = null;
+    				lowConfidence = true;
+    			}
     		} catch {
     			command = null;
     		}
+    		if (settings.debug === true) this.writeTrace(trace);
     		if (!command) {
-    			await this.result(key, { colour: "#7a4a00", line1: "NOT HEARD", line2: (text || "silence").slice(0, 18) }, true);
+    			await this.result(key, { colour: "#7a4a00", line1: lowConfidence ? "LOW CONF" : "NOT HEARD", line2: (text || "silence").slice(0, 18) }, true);
     			return;
     		}
+
+    		// Ignore the same command repeated within the cooldown
+    		const wait = (rule?.cooldown ?? (Number(settings.cooldown) || 0)) * 1000;
+    		const last = this.recent.get(key.id);
+    		if (wait > 0 && last && last.command === command && Date.now() - last.at < wait) {
+    			await this.result(key, { colour: "#7a4a00", line1: "COOLDOWN", line2: command.slice(0, 18) }, true);
+    			return;
+    		}
+    		this.recent.set(key.id, { command, at: Date.now() });
 
     		const port = Number(settings.port) || DEFAULT_PORT;
     		let conn = this.connections.get(port);
@@ -255,6 +290,17 @@ class Listener {
     		await conn.connect();
     		const ok = await conn.send(command);
     		await this.result(key, { colour: ok ? "#1f6f3a" : "#7a1f1f", line1: ok ? "SENT" : "NO GAME", line2: command }, !ok);
+    	}
+
+    	private writeTrace(trace: string[]): void {
+    		try {
+    			const folder = path.resolve(HERE, "../voice/debug");
+    			mkdirSync(folder, { recursive: true });
+    			writeFileSync(path.join(folder, "last-parse.txt"), trace.join("\n"), "utf-8");
+    		} catch (err) {
+    			streamDeck.logger.warn(`Could not write parse trace: ${err instanceof Error ? err.message : err}`);
+    		}
+    		streamDeck.logger.debug(trace.join(" | "));
     	}
 
     	private async result(key: KeyAction<Settings>, view: View, alert: boolean): Promise<void> {

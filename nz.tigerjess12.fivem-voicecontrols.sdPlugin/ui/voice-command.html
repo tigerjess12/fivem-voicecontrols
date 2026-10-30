@@ -26,14 +26,26 @@
 	<sdpi-item label="Commands">
 		<sdpi-textarea setting="commands" rows="8" maxlength="4000" placeholder='Leave empty for the defaults, e.g. [{"say":["sam"],"send":"sam","args":"callsign"}]'></sdpi-textarea>
 	</sdpi-item>
+	<sdpi-item label="Corrections">
+		<sdpi-textarea setting="corrections" rows="3" maxlength="2000" placeholder='Fix mishearings, e.g. {"salm":"sam","check plait":"check plate"}'></sdpi-textarea>
+	</sdpi-item>
+	<sdpi-item label="Vocabulary">
+		<sdpi-textarea setting="vocabulary" rows="3" maxlength="2000" placeholder='Extra letter/number words, e.g. {"niner":"9","alfa":"A"}'></sdpi-textarea>
+	</sdpi-item>
+	<sdpi-item label="Min confidence %">
+		<sdpi-textfield setting="minConfidence" placeholder="0 (off)"></sdpi-textfield>
+	</sdpi-item>
+	<sdpi-item label="Cooldown (sec)">
+		<sdpi-textfield setting="cooldown" placeholder="0 (off)"></sdpi-textfield>
+	</sdpi-item>
 	<sdpi-item label="Debug">
-		<sdpi-checkbox setting="debug" label="Save last recording and transcript to the plugin's debug folder"></sdpi-checkbox>
+		<sdpi-checkbox setting="debug" label="Save last recording, transcript and how it was parsed to the plugin's debug folder"></sdpi-checkbox>
 	</sdpi-item>
 	<sdpi-item>
 		<details>
 			<summary>How it works</summary>
 			<p>Hold the key, speak, release to send the command to the FiveM client console. Speech recognition runs offline on your PC. Nothing is recorded to disk unless Debug is ticked.</p>
-			<p>Commands is a JSON list. Each entry has <code>say</code> (words that trigger it, including likely mis-hearings), <code>send</code> (the console command) and <code>args</code>: <code>callsign</code> (letters then digits), <code>digits</code>, <code>text</code> or <code>none</code>. Letters can be spoken as letters or NATO words, numbers as digits or words. Empty uses the built-in <code>sam</code> and <code>p</code> commands.</p>
+			<p>Commands is a JSON list. Each entry has <code>say</code> (words that trigger it, including likely mis-hearings), <code>send</code> (the console command) and <code>args</code>: <code>callsign</code>, <code>plate</code>, <code>vehicle</code> (description, "plate", then the registration), <code>digits</code>, <code>text</code> or <code>none</code>. Optional: <code>options</code>, <code>required</code>, <code>minLength</code>, <code>maxLength</code>, <code>cooldown</code>. Letters can be spoken as letters or NATO words, numbers as digits or words, but only for the commands that expect them. Empty uses the built-in commands.</p>
 		</details>
 	</sdpi-item>
 </body>

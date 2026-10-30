@@ -91,19 +91,23 @@ def save_debug_text(text):
 
 def transcribe(model, chunks):
     if not chunks:
-        return ""
+        return "", 0.0
     samples = np.frombuffer(b"".join(chunks), dtype=np.int16)
     if settings["debug"]:
         save_debug(samples)
     audio = samples.astype(np.float32) / 32768.0
     peak = float(np.max(np.abs(audio))) if audio.size else 0.0
     if peak < 0.005:
-        return ""
+        return "", 0.0
     audio = audio * min(0.9 / peak, 20.0)
     pad = np.zeros(RATE // 4, dtype=np.float32)
     audio = np.concatenate([pad, audio, pad])
     segments, _ = model.transcribe(audio, language="en", beam_size=1, initial_prompt=settings["prompt"], condition_on_previous_text=False, without_timestamps=True)
-    return " ".join(s.text.strip() for s in segments).strip()
+    segments = list(segments)
+    text = " ".join(s.text.strip() for s in segments).strip()
+    # Average token probability across the segments, 0..1
+    confidence = float(np.exp(np.mean([s.avg_logprob for s in segments]))) if segments else 0.0
+    return text, confidence
 
 
 def main():
@@ -152,13 +156,13 @@ def main():
             while not audio.empty():
                 chunks.append(audio.get_nowait())
             try:
-                text = transcribe(model, chunks)
+                text, confidence = transcribe(model, chunks)
             except Exception as err:
                 send({"type": "error", "code": "transcribe_failed", "message": str(err)})
                 continue
             if settings["debug"]:
                 save_debug_text(text)
-            send({"type": "result", "text": text})
+            send({"type": "result", "text": text, "confidence": round(confidence, 3)})
         elif cmd == "quit":
             break
 
