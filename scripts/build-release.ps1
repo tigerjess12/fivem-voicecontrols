@@ -53,6 +53,11 @@ if (-not $SkipFull) {
         throw "dist\listener\listener.exe is missing. Antivirus often removes unsigned PyInstaller output; exclude the dist folder and retry."
     }
     Pack-Variant "full" (Join-Path $root "dist\listener")
+
+    # Standalone copy so listener.exe can be restored if antivirus removes it from the installed plugin
+    $zip = Join-Path $out "listener-windows.zip"
+    Compress-Archive -Path (Join-Path $root "dist\listener\*") -DestinationPath $zip -Force
+    "{0}: {1:N1} MB" -f $zip, ((Get-Item $zip).Length / 1MB)
 }
 
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue

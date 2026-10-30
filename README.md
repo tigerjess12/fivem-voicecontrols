@@ -124,3 +124,36 @@ The model is not bundled. On first use it is downloaded (about 150 MB for `base.
 - **`NO MIC`:** the microphone couldn't be opened. Check your default input device and OS microphone permissions.
 - **`NO GAME`:** FiveM isn't running or the console port doesn't match.
 - Logs are in `nz.tigerjess12.fivem-voicecontrols.sdPlugin/logs`.
+
+
+
+## How It Works
+
+The voice parser converts spoken commands into executable FiveM console commands.
+
+It uses speech normalization, NATO phonetic recognition, number conversion and configurable command rules to interpret speech and construct the appropriate command.
+
+### Processing Flow
+
+```mermaid
+flowchart TD
+    A([Voice Input]) --> B[Speech Recognition Transcript]
+    B --> C[Normalize Transcript]
+    C --> D[Convert Numbers and NATO Phonetics]
+    D --> E[Match Configured Commands]
+    E --> F{Command Matched?}
+    F -->|No| G([Return null])
+    F -->|Yes| H[Extract Arguments]
+    H --> I{Argument Type}
+    I -->|Callsign| J[Convert Letters and Digits]
+    I -->|Digits| K[Extract Numbers]
+    I -->|Vehicle| L[Parse Description and Plate]
+    I -->|Text| M[Pass Text]
+    I -->|None| N[No Arguments]
+    J --> O[Build Console Command]
+    K --> O
+    L --> O
+    M --> O
+    N --> O
+    O --> P([Return Command])
+```

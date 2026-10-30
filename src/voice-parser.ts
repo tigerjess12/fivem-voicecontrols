@@ -20,17 +20,25 @@ const NATO: Record<string, string> = {
  * - "digits": digits only, e.g. "one two three" -> 123
  * - "text": the words as spoken
  * - "none": no arguments
+ * - "vehicle": a description, then the word "plate" and the plate, e.g. "red sedan plate alpha bravo 5 charlie 1" -> red sedan AB5C1
+ * `say` entries may be several words or a code like "10-3" ("ten three" is heard the same way).
+ * `options` maps a spoken keyword straight to what is sent after `send`, e.g. { "latest": "latest" }, and is checked before `args`.
  */
-export type CommandRule = { say: string[]; send: string; args?: "callsign" | "digits" | "text" | "none" };
+export type CommandRule = { say: string[]; send: string; args?: "callsign" | "digits" | "text" | "none" | "vehicle"; options?: Record<string, string> };
 
 export const DEFAULT_COMMANDS: CommandRule[] = [
     { say: ["sam", "sum", "sem", "same", "sand", "sans", "psalm", "salm"], send: "sam", args: "callsign" },
-    { say: ["p", "pea", "pee"], send: "p", args: "digits" }
+    { say: ["p", "pea", "pee", "postal", "go to"], send: "p", args: "digits" },
+    { say: ["Check Plate", "check plates", "qvr"], send: "qvr", args: "callsign"},
+    { say: ["10-3", "ten three"], send: "10-3", args: "callsign" },
+    { say: ["10-2", "ten two"], send: "10-2", args: "none", options: { latest: "latest", osa: "OSA" } },
+    { say: ["10-7", "ten seven"], send: "10-7", args: "digits", options: { osa: "OSA" } },
+    { say: ["3t", "three t", "tt"], send: "3t", args: "vehicle" }
 ];
 
 export const DEFAULT_COMMANDS_JSON = JSON.stringify(DEFAULT_COMMANDS, null, 2);
 
-const ARG_TYPES = new Set(["callsign", "digits", "text", "none"]);
+const ARG_TYPES = new Set(["callsign", "digits", "text", "none", "vehicle"]);
 
 /** Parses the user's command list. Empty input means the defaults. Throws a readable error if invalid. */
 export function parseCommandConfig(json: string | undefined): CommandRule[] {
@@ -46,9 +54,14 @@ export function parseCommandConfig(json: string | undefined): CommandRule[] {
             throw new Error(`Command ${i + 1}: "send" must be a single command`);
         }
         if (r.args !== undefined && !ARG_TYPES.has(r.args)) {
-            throw new Error(`Command ${i + 1}: "args" must be callsign, digits, text or none`);
+            throw new Error(`Command ${i + 1}: "args" must be callsign,             digits, text, vehicle or none`);
         }
-        return { say: r.say.map((s) => s.trim().toLowerCase()), send: r.send.trim(), args: r.args ?? "text" };
+                    if (r.options !== undefined && (typeof r.options !== "object" || r.options === null || Array.isArray(r.options) ||
+                        !Object.entries(r.options).every(([k, v]) => k.trim() && typeof v === "string" && !/[\r\n;]/.test(v)))) {
+                        throw new Error(`Command ${i + 1}: "options" must map spoken words to text`);
+                    }
+                    const options = r.options ? Object.fromEntries(Object.entries(r.options).map(([k, v]) => [k.trim().toLowerCase(), v.trim()])) : undefined;
+                    return { say: r.say.map((s) => s.trim().toLowerCase()), send: r.send.trim(), args: r.args ?? "text", ...(options ? { options } : {}) };
     });
 }
 
@@ -58,9 +71,10 @@ export function buildPrompt(rules: CommandRule[]): string {
         const word = r.say[0];
         if (r.args === "callsign") return `${word} K 8. ${word} W N T 1 1.`;
         if (r.args === "digits") return `${word} 1 2 3 4.`;
+        if (r.args === "vehicle") return `${word} red sedan plate A B 5 C 1.`;
         return `${word}.`;
     });
-    const alphabet = rules.some((r) => r.args === "callsign") ? " Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliett Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey X-ray Yankee Zulu." : "";
+    const alphabet = rules.some((r) => r.args === "callsign" || r.args === "vehicle") ? " Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliett Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey X-ray Yankee Zulu." : "";
     return `Radio call. ${examples.join(" ")}${alphabet}`;
 }
 
@@ -125,7 +139,7 @@ function resolveNato(word: string): string | null {
 }
 
 // Normalize transcript into array of tokens
-function normalize(transcript: string): string[] {
+function normalize(transcript: string, plain = false): string[] {
     // lowercase, remove non-alphanumeric characters except spaces, split into words, and filter out empty strings
     const speech = transcript.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean);
 
@@ -145,6 +159,8 @@ function normalize(transcript: string): string[] {
             out.push(UNITS[w]);
         } else if (i === 0 && !(w in NATO)) {
             // The first word is the command word, so it is never guessed as a letter
+            out.push(w);
+        } else if (plain) {
             out.push(w);
         } else if (resolveNato(w)) {
             out.push(resolveNato(w) as string);
@@ -171,9 +187,26 @@ export function parseVoiceTranscript(transcript: string, rules: CommandRule[] = 
     const first = tokens[0].toLowerCase();
 
     for (const rule of rules) {
-        const rest = tokens.slice(1);
+        let rest = tokens.slice(1);
         let attached = "";
         let matched = rule.say.includes(first);
+
+        // Multi-word or coded phrases: "10 3", "ten three" and "10-3" (heard as "103") are the same
+        if (!matched) {
+            for (const phrase of rule.say) {
+                const words = normalize(phrase);
+                if (words.length === 0) continue;
+                if (words.length > 1 && words.every((w, i) => tokens[i]?.toLowerCase() === w)) {
+                    matched = true;
+                    rest = tokens.slice(words.length);
+                    break;
+                }
+                if (first === words.join("")) {
+                    matched = true;
+                    break;
+                }
+            }
+        }
 
         // "p1234" is heard as a single word
         if (!matched && rule.args === "digits") {
@@ -185,6 +218,11 @@ export function parseVoiceTranscript(transcript: string, rules: CommandRule[] = 
         }
         if (!matched) continue;
 
+        if (rule.options) {
+            const spoken = rest.join(" ").toLowerCase();
+            const key = Object.keys(rule.options).find((k) => spoken === k || spoken.startsWith(`${k} `) || spoken === k.replace(/\s+/g, ""));
+            if (key) return `${rule.send} ${rule.options[key]}`.trimEnd();
+        }
         switch (rule.args) {
             case "callsign": {
                 const unit = callsign(rest);
@@ -196,6 +234,14 @@ export function parseVoiceTranscript(transcript: string, rules: CommandRule[] = 
             }
             case "none":
                 return rule.send;
+            case "vehicle": {
+                // Re-read without letter guessing so the description words stay intact
+                const words = normalize(transcript, true).slice(tokens.length - rest.length);
+                const at = words.findIndex((w) => w === "plate" || w === "plates");
+                const description = (at < 0 ? words : words.slice(0, at)).join(" ");
+                const plate = at < 0 ? "" : callsign(words.slice(at + 1).map((w) => resolveNato(w) ?? w));
+                return [rule.send, description, plate].filter(Boolean).join(" ");
+            }
             default: {
                 const text = rest.join(" ");
                 return text ? `${rule.send} ${text}` : `${rule.send} `;
