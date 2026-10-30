@@ -48,12 +48,12 @@ export type ParserOptions = { corrections?: Record<string, string>; vocabulary?:
 export type ParseResult = { command: string | null; rule: CommandRule | null; trace: string[] };
 
 export const DEFAULT_COMMANDS: CommandRule[] = [
-    { say: ["sam", "sum", "sem", "same", "sand", "sans", "psalm", "salm"], send: "sam", args: "callsign" },
+    { say: ["sam", "sum", "sem", "same", "sand", "sans", "psalm", "salm", "san"], send: "sam", args: "callsign" },
     { say: ["p", "pea", "pee", "postal", "go to"], send: "p", args: "digits" },
-    { say: ["Check Plate", "check plates", "qvr"], send: "qvr", args: "plate", required: true },
+    { say: ["check plate", "check plates", "qvr", "plate"], send: "qvr", args: "plate", required: true },
     { say: ["10-3", "ten three"], send: "10-3", args: "callsign" },
-    { say: ["10-2", "ten two"], send: "10-2", args: "none", options: { latest: "latest", osa: "OSA" } },
-    { say: ["10-7", "ten seven"], send: "10-7", args: "digits", options: { osa: "OSA" } },
+    { say: ["10-2", "ten two"], send: "10-2", args: "none", options: { latest: "latest"} },
+    { say: ["10-7", "ten seven"], send: "10-7", args: "digits"},
     { say: ["3t", "three t", "tt"], send: "3t", args: "vehicle" }
 ];
 
